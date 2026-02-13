@@ -161,13 +161,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                         matching_group = g
                                         break
 
-                                if matching_group:
-                                    current_street_id = matching_group['choosedStreetIds']
-                                    _LOGGER.info("New period: matched building type '%s', street_id=%s", group_name, current_street_id)
+                                if not matching_group:
+                                    matching_group = groups[0]
+                                    _LOGGER.warning(
+                                        "Building type '%s' not found in new period, using first group '%s'",
+                                        group_name, matching_group.get('name'))
+
+                                # Re-call API with the group's narrowed choosedStreetIds
+                                # to resolve to a single street entry
+                                group_choosed_ids = matching_group['choosedStreetIds']
+                                _LOGGER.debug(
+                                    "Resolving group '%s' choosedStreetIds=%s to single street",
+                                    matching_group.get('name'), group_choosed_ids)
+                                _grps, _gid, resolved_streets = await hass.async_add_executor_job(
+                                    api.get_building_groups,
+                                    group_choosed_ids,
+                                    number,
+                                    town_id,
+                                    street_name,
+                                    period_id
+                                )
+                                if resolved_streets:
+                                    current_street_id = resolved_streets[0]['id']
+                                    _LOGGER.info(
+                                        "New period: resolved building type '%s' to street_id=%s",
+                                        matching_group.get('name'), current_street_id)
                                 else:
-                                    # Group name not found, use first group
-                                    current_street_id = groups[0]['choosedStreetIds']
-                                    _LOGGER.warning("Building type '%s' not found in new period, using first group street_id=%s", group_name, current_street_id)
+                                    current_street_id = group_choosed_ids.split(',')[0]
+                                    _LOGGER.warning("Could not resolve group streets, using first ID=%s", current_street_id)
 
                             # Update entry data with new IDs (but not selected_waste_types yet - we need new data first)
                             hass.config_entries.async_update_entry(

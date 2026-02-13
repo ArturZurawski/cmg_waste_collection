@@ -218,7 +218,31 @@ class WasteCollectionConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             group_parts = user_input["group"].split("|")
             self.data[CONF_GROUP_NAME] = group_parts[0]
-            self.data[CONF_STREET_ID] = group_parts[1]
+            group_street_ids = group_parts[1]
+
+            # The group's choosedStreetIds may contain multiple IDs (e.g. same
+            # building type across different regions).  Re-call the /streets
+            # API with the narrowed IDs so the backend resolves to the single
+            # street entry that matches the building number.
+            try:
+                groups, _gid, streets = await self.hass.async_add_executor_job(
+                    self.api.get_building_groups,
+                    group_street_ids,
+                    self.data[CONF_NUMBER],
+                    self.data[CONF_TOWN_ID],
+                    self.data[CONF_STREET_NAME],
+                    self.data[CONF_PERIOD_ID]
+                )
+
+                if streets:
+                    self.data[CONF_STREET_ID] = streets[0]['id']
+                else:
+                    self.data[CONF_STREET_ID] = group_street_ids.split(',')[0]
+
+            except Exception as err:
+                _LOGGER.error("Error resolving street for group: %s", err)
+                self.data[CONF_STREET_ID] = group_street_ids.split(',')[0]
+
             return await self.async_step_waste_types()
 
         try:
